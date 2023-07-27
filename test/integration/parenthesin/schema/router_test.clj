@@ -37,7 +37,7 @@
           {:config (components.config/new-config)
            :http (components.http/new-http-mock {})
            :database (component/using (components.db/new-database) [:config])
-           :router (components.router/new-router test-routes)
+           :router (component/using (components.router/new-router test-routes) [:config])
            :webserver (component/using (components.webserver/new-webserver)
                                        [:config :http :router :database])})
    :cleanup util/stop-system!

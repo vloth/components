@@ -1,5 +1,6 @@
 (ns parenthesin.components.router.reitit-schema
-  (:require [com.stuartsierra.component :as component]
+  (:require [clojure.walk :as w]
+            [com.stuartsierra.component :as component]
             [muuntaja.core :as m]
             [parenthesin.helpers.logs :as logs]
             [reitit.coercion.schema :as reitit.schema]
@@ -62,10 +63,26 @@
                              ;; multipart
                          (multipart/multipart-interceptor)]}})
 
-(defn router [routes]
+(defn add-support-var-handlers
+  "Adds support to var handlers to a more REPL friendly experience.
+  When dev? var handlers are wrapped in a function to allow replacing var values in runtime.
+  When not dev? the values are just used instead."
+  [routes dev?]
+  (letfn [(wrap [original-handler]
+            (cond (fn? original-handler) original-handler
+                  dev? (fn [& args] (apply original-handler args))
+                  (var? original-handler) (var-get original-handler)))]
+    (w/postwalk
+     #(if (and (coll? %) (= (first %) :handler))
+        [:handler (wrap (second %))]
+        %)
+     routes)))
+
+(defn router [routes env]
   (pedestal/routing-interceptor
-   (http/router routes router-settings)
-    ;; optional default ring handler (if no routes have matched)
+   (http/router (add-support-var-handlers routes (= :dev env))
+                router-settings)
+   ;; optional default ring handler (if no routes have matched)
    (ring/routes
     (swagger-ui/create-swagger-ui-handler
      {:path "/"
@@ -74,11 +91,13 @@
     (ring/create-resource-handler)
     (ring/create-default-handler))))
 
-(defrecord Router [router]
+(defrecord Router [config routes]
   component/Lifecycle
-  (start [this] this)
+  (start [this]
+    (assoc this :router (router routes (get-in config [:config :env]))))
+
   (stop  [this] this))
 
 (defn new-router
   [routes]
-  (map->Router {:router (router routes)}))
+  (map->Router {:routes routes}))
